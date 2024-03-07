@@ -17,6 +17,7 @@ show_pages(
         Page("./app.py", "Home", "🏠"),
         # Can use :<icon-name>: or the actual icon
         Page("./registros.py", "Registros", ":books:"),
+        
     ]
 )
 

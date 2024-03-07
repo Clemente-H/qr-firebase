@@ -1,7 +1,8 @@
 import streamlit as st
-from firebase_admin import firestore, credentials, initialize_app
+import pandas as pd
 import firebase_admin
-# Inicializa Firebase Admin
+from firebase_admin import credentials, firestore, initialize_app
+
 cred = credentials.Certificate('../firebaseCredentials.json')
 try:
     firebase_app = firebase_admin.get_app()
@@ -11,47 +12,32 @@ except ValueError:
 # Obtén una referencia al cliente de Firestore
 db = firestore.client()
 
-# Función para obtener los datos de Firestore
+# Función para obtener los datos de Firestore y convertirlos en un DataFrame de Pandas
 def obtener_datos():
-    docs = db.collection('Ingresos').stream()
-    datos = []
-    for doc in docs:
-        doc_data = doc.to_dict()
-        doc_data['id'] = doc.id  # Asegúrate de capturar el ID del documento
-        datos.append(doc_data)
-    return datos
+    query = db.collection('Ingresos').stream()
+    docs = [{**doc.to_dict(), 'id': doc.id} for doc in query]  # Incluye el 'id' del documento
+    if docs:
+        df = pd.DataFrame(docs)
+        # Ordena las columnas específicamente
+        df = df[['id', 'nombre', 'tipo_ingreso', 'hora_ingreso', 'id_lugar']]
+    else:
+        df = pd.DataFrame(columns=['id', 'nombre', 'tipo_ingreso', 'hora_ingreso', 'id_lugar'])
+    return df
 
-# Función para borrar un documento en Firestore
-def borrar_documento(doc_id):
-    db.collection('Ingresos').document(doc_id).delete()
+# Función para actualizar Firestore basado en el DataFrame editado
+def actualizar_firestore(df):
+    for index, row in df.iterrows():
+        doc_ref = db.collection('Ingresos').document(row['id'])
+        # Convierte la fila del DataFrame a diccionario y elimina la clave 'id' antes de actualizar
+        doc_data = row.to_dict()
+        doc_data.pop('id', None)  # Elimina 'id' ya que no lo queremos como campo en el documento
+        doc_ref.set(doc_data)
 
-# Función para actualizar un documento en Firestore
-def actualizar_documento(doc_id, data):
-    db.collection('Ingresos').document(doc_id).set(data, merge=True)
+# Cargar datos de Firestore y mostrarlos en st.data_editor
+df = obtener_datos()
+df_editado = st.data_editor(data=df)
 
-# Mostrar los datos en Streamlit
-datos = obtener_datos()
-if datos:
-    for data in datos:
-        with st.expander(f"{data['nombre']}"):
-            form = st.form(key=f"form_{data['id']}")
-            nombre = form.text_input("Nombre", value=data['nombre'])
-            hora_ingreso = form.text_input("Hora de Ingreso", value=data['hora_ingreso'])
-            tipo_ingreso = form.selectbox("Tipo de Ingreso", ["normal", "manual"], index=0 if data['tipo_ingreso'] == "normal" else 1)
-            id_lugar = form.text_input("ID Lugar", value=data['id_lugar'])
-            
-            actualizar = form.form_submit_button("Actualizar")
-            borrar = form.form_submit_button("Borrar")
-            
-            if actualizar:
-                actualizar_documento(data['id'], {
-                    "nombre": nombre,
-                    "hora_ingreso": hora_ingreso,
-                    "tipo_ingreso": tipo_ingreso,
-                    "id_lugar": id_lugar
-                })
-                st.success("Registro actualizado")
-            
-            if borrar:
-                borrar_documento(data['id'])
-                st.success("Registro borrado")
+# Botón para guardar cambios
+if st.button("Guardar cambios"):
+    actualizar_firestore(df_editado)
+    st.experimental_rerun()  # Rerun the script to refresh the data shown
